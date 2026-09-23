@@ -1,7 +1,7 @@
 # CẨM NANG KIẾN TRÚC CHUẨN & HƯỚNG DẪN TRIỂN KHAI SERVICE HUB
 ### Hệ Sinh Thái Tích Hợp Đa Dịch Vụ Với Apache Camel 4 & Spring Boot 3
 > **Tài liệu chuẩn kiến trúc doanh nghiệp, quản trị phiên/bảo mật, xử lý ngoại lệ và cấu hình Production**  
-> **Dự án tham chiếu:** `demo_apache_camel` | **Ngôn ngữ:** Java 17+ | **Framework:** Camel Spring Boot 4.22.0
+> **Dự án tham chiếu:** `demo_apache_camel` | **Ngôn ngữ:** Java 17+ | **Framework:** Camel Spring Boot 4.22.0 | **Phiên bản tài liệu:** v2.0 (Production-Grade Token & JWT)
 
 ---
 
@@ -175,16 +175,44 @@ src/main/java/com/demo_apache_camel/
 
 ---
 
-### 2.2. Inbound: Xác thực Client, Phân quyền & Distributed Tracing
+### 2.2. Inbound: Xác thực Client, Phân quyền & Distributed Tracing — **PRODUCTION GRADE**
 
 Khi một request từ Client chạm vào Hub, nó phải đi qua **2 trạm kiểm soát nghiêm ngặt** trước khi vào Camel Route:
 
-1. **Trạm Gác Cổng Số 1 — [`InboundSecurityFilter.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/config/InboundSecurityFilter.java) (Tầng Servlet Ingress):**
+1. **Trạm Gác Cổng Số 1 — [`InboundSecurityFilter.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/security/InboundSecurityFilter.java) (Tầng Servlet Ingress):**
    * **Bắt chặn trước Controller & Camel:** Kế thừa `OncePerRequestFilter` với độ ưu tiên cao nhất (`@Order(Ordered.HIGHEST_PRECEDENCE)`).
-   * **Quản lý Token (Bearer JWT / API Key):** Trích xuất header `Authorization: Bearer <jwt>`, kiểm tra chữ ký số, thời hạn (`exp`), kiểm tra danh sách đen (Blacklist trong Redis).
-   * **Quản lý Cookie & Session:** Đọc Cookie định danh phiên (nếu có từ Web/SPA), xác minh tính hợp lệ.
-   * **Fail-Fast (Chặn đứng trong 1ms):** Nếu Token giả mạo hoặc hết hạn, lập tức trả về `HTTP 401 Unauthorized` dạng JSON chuẩn ngay tại cổng Servlet. Tuyệt đối không để request rác lọt vào Controller hay tiêu tốn tài nguyên Camel Context.
-   * **Distributed Tracing:** Khởi tạo `X-Correlation-Id` và gắn vào `MDC.put("traceId", correlationId)` để toàn bộ log của request đều có vết đồng nhất.
+   * **JWT Thật bằng JJWT 0.12:** Dùng [`JwtTokenValidator.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/security/JwtTokenValidator.java) để:
+     - Xác thực chữ ký số HMAC-SHA256 (chống giả mạo token)
+     - Kiểm tra `exp` (hết hạn), `iss` (issuer khớp Hub), `nbf` (chưa có hiệu lực)
+     - Clock skew tolerance: chấp nhận lệch đồng hồ ±60s
+   * **3 phương thức xác thực song song:** Bearer JWT → X-API-Key → Cookie phiên (fallback chain)
+   * **Phân loại lỗi chi tiết** qua `JwtValidationException.Reason`: INVALID_SIGNATURE, TOKEN_EXPIRED, INVALID_ISSUER, NOT_YET_VALID, MISSING_OR_MALFORMED — Safe message trả client không lộ kỹ thuật nội bộ.
+   * **JwtClaims gắn vào request:** `request.setAttribute("HUB_JWT_CLAIMS", claims)` → Controller và Camel Route dùng lại.
+   * **Fail-Fast (Chặn đứng trong <1ms):** Trả `HTTP 401 Unauthorized` dạng JSON chuẩn hóa ngay tại cổng Servlet, bảo vệ toàn bộ Camel Context.
+   * **Distributed Tracing:** `X-Correlation-Id` + `MDC.put("traceId", correlationId)` xuyên suốt.
+
+```java
+// Cấu hình JwtProperties (application.yaml — đọc từ biến môi trường production)
+hub:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:CHANGE_ME_production_256bit_secret_key}
+      expiration-seconds: 3600
+      issuer: enterprise-service-hub
+      clock-skew-seconds: 60
+
+// Tạo JWT thật cho client (internal hoặc test setup)
+String token = jwtTokenValidator.issueToken("CLIENT_APP_001", List.of("ROLE_PARTNER"));
+
+// Validate JWT trong InboundSecurityFilter
+JwtTokenValidator.JwtClaims claims = jwtTokenValidator.validate(authHeader);
+request.setAttribute("HUB_JWT_CLAIMS", claims);  // → downstream dùng lại
+```
+
+2. **Trạm Gác Cổng Số 2 — [`OrderController.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/controller/OrderController.java) (Tầng API Gateway REST Ingress):**
+   * Tiếp nhận danh tính đã được Trạm 1 xác thực.
+   * **Fail-Fast Validation nghiệp vụ:** Kiểm tra tính toàn vẹn của payload (`orderId`, `serviceType`), chặn mã 400 nếu rỗng.
+   * **Đóng gói an toàn vào Camel Exchange:** Đưa `X-Client-Id` và `X-Correlation-Id` vào `camelHeaders` rồi gọi `producerTemplate.requestBodyAndHeaders("direct:processOrder", request, camelHeaders, OrderResponse.class)`.
 
 2. **Trạm Gác Cổng Số 2 — [`OrderController.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/controller/OrderController.java) (Tầng API Gateway REST Ingress):**
    * Tiếp nhận danh tính đã được Trạm 1 xác thực.
@@ -205,55 +233,74 @@ OrderResponse response = producerTemplate.requestBodyAndHeaders(
 
 ---
 
-### 2.3. Outbound: Quản lý vòng đời OAuth2 Token của đối tác (`PartnerTokenManager`)
+### 2.3. Outbound: Quản lý vòng đời OAuth2 Token của đối tác — **PRODUCTION GRADE**
 
-Lớp [`PartnerTokenManager.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/partner/common/token/PartnerTokenManager.java) hiện thực hóa chuẩn Thread-safe Token Lifecycle:
+[`PartnerTokenManager.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/partner/common/PartnerTokenManager.java) hiện thực hóa **5 cơ chế production-grade**:
+
+| Cơ chế | Mô tả | Lợi ích |
+|---|---|---|
+| **Proactive Refresh** | Refresh sớm khi còn <5 phút trước hết hạn | Zero latency spike, không có request nào chờ fetch token |
+| **Double-Checked Locking** | Synchronized block kiểm tra 2 lần | Chống race condition khi N threads đồng thời phát hiện token hết hạn |
+| **Real OAuth2 RFC 6749** | HTTP POST Client Credentials Grant | Đúng chuẩn giao thức, tương thích mọi Authorization Server |
+| **Graceful Fallback** | URL localhost/mock → tự dùng mock token | Test & local dev không cần partner thật |
+| **Defensive Evict (Layer 2)** | `evictToken()` khi nhận 401 từ partner | Xử lý token bị thu hồi đột xuất ngoài dự kiến |
 
 ```java
-@Slf4j
-@Service
-public class PartnerTokenManager {
-
-    private final Map<String, CachedToken> tokenStore = new ConcurrentHashMap<>();
-
-    public String getOrRefreshToken(String partnerCode) {
-        CachedToken cached = tokenStore.get(partnerCode);
-
-        if (cached == null || cached.isExpired()) {
-            synchronized (this) {
-                cached = tokenStore.get(partnerCode);
-                if (cached == null || cached.isExpired()) {
-                    log.info("[PARTNER-TOKEN] Token của đối tác '{}' đã hết hạn. Đang cấp mới...", partnerCode);
-                    cached = requestNewTokenFromPartner(partnerCode);
-                    tokenStore.put(partnerCode, cached);
-                }
-            }
-        }
-        return cached.getToken();
-    }
-
-    public void evictToken(String partnerCode) {
-        log.warn("[PARTNER-TOKEN] Thu hồi token đối tác '{}' do nhận lỗi 401", partnerCode);
-        tokenStore.remove(partnerCode);
-    }
-}
+// Cấu hình partner OAuth2 credentials (application.yaml)
+hub:
+  partner-oauth2:
+    token-refresh-buffer-seconds: 300   # Refresh khi còn <5 phút
+    connect-timeout-ms: 3000
+    read-timeout-ms: 5000
+    partners:
+      VIETJET:
+        token-url: ${VIETJET_TOKEN_URL:http://localhost:9999/mock/...}
+        client-id: ${VIETJET_CLIENT_ID:vietjet-hub-client}
+        client-secret: ${VIETJET_CLIENT_SECRET:secret}    # Đọc từ env var
+        scope: flight:read flight:book
 ```
 
-* **Xử lý tự động Refresh Token khi gặp lỗi 401:**
 ```java
+// Cách dùng trong Adapter Route — hoàn toàn transparent
 from("direct:callVietjetRest")
     .process(exchange -> {
+        // Tự động proactive refresh nếu token sắp hết hạn
         String token = partnerTokenManager.getOrRefreshToken("VIETJET");
         exchange.getMessage().setHeader("Authorization", "Bearer " + token);
     })
     .to("http://partner-api.vietjetair.com/orders?bridgeEndpoint=true")
     
-    // Nếu token bị đối tác thu hồi sớm -> Tự động xóa cache và thử lại 1 lần
+    // Layer 2: Nếu token bị thu hồi bất ngờ → evict và retry 1 lần
     .onException(HttpOperationFailedException.class)
         .onWhen(simple("${exception.statusCode} == 401"))
         .process(exchange -> partnerTokenManager.evictToken("VIETJET"))
         .maximumRedeliveries(1)
         .redeliveryDelay(300);
+
+// Proactive warm-up tự động mỗi 60s (không chờ request thật)
+@Scheduled(initialDelay = 30_000, fixedDelay = 60_000)
+public void proactiveTokenRefresh() {
+    partnerTokenManager.warmUpAllPartners();
+}
+```
+
+**Cơ chế OAuth2 Client Credentials Flow (RFC 6749):**
+```
+Hub                                    Partner OAuth2 Server
+  │                                           │
+  │──POST /oauth2/token──────────────────────>│
+  │  Content-Type: application/x-www-form-urlencoded
+  │  Authorization: Basic base64(clientId:secret)
+  │  Body: grant_type=client_credentials&scope=flight:read
+  │                                           │
+  │<──── 200 OK ──────────────────────────────│
+  │  {"access_token": "eyJ...",               │
+  │   "token_type": "Bearer",                 │
+  │   "expires_in": 3600,                     │
+  │   "scope": "flight:read flight:book"}     │
+  │                                           │
+  │ CachedToken{accessToken, expiresAt,       │
+  │             tokenType, scope, isMock}     │
 ```
 
 ---
@@ -555,57 +602,77 @@ Dưới đây là liên kết trực tiếp giữa các thành phần kiến tr�
 | **Exception Handling**| [`GlobalExceptionHandler.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/exception/GlobalExceptionHandler.java) | Bắt mọi Exception tại Ingress, format chuẩn HTTP Status Code. |
 | **Global Config & Pools**| [`CamelGlobalConfig.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/config/CamelGlobalConfig.java) | Kích hoạt Stream Caching, Log Masking, Parallel ThreadPool. |
 | **Environment Config** | [`HubProperties.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/config/HubProperties.java) | Cấu hình Type-Safe nạp từ application.yaml (rest, storage, retry). |
+| **JWT Config** | [`JwtProperties.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/config/JwtProperties.java) | Cấu hình JWT secret, expiry, issuer, clock-skew cho HS256. |
+| **OAuth2 Config** | [`PartnerOAuth2Properties.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/config/PartnerOAuth2Properties.java) | Cấu hình tokenUrl, clientId, secret cho từng đối tác. |
+| **Partner HTTP** | [`PartnerHttpConfig.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/config/PartnerHttpConfig.java) | RestTemplate có timeout cho OAuth2 + bật @EnableScheduling. |
+| **Security Filter** | [`InboundSecurityFilter.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/security/InboundSecurityFilter.java) | JWT thật (HMAC-SHA256) + 3 auth method + Distributed Tracing. |
+| **JWT Validator** | [`JwtTokenValidator.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/security/JwtTokenValidator.java) | Parse & validate JWT (sig, exp, iss, nbf, clock-skew). Phát hành token nội bộ. |
+| **JWT Exception** | [`JwtValidationException.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/security/JwtValidationException.java) | Phân loại 6 loại lỗi JWT với safe client message. |
 | **Security Header** | [`SecurityHeaderFilterStrategy.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/config/SecurityHeaderFilterStrategy.java) | Chặn rò rỉ Authorization / Cookie sang hệ thống ngoài. |
 | **Idempotency** | [`IdempotencyConfig.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/config/IdempotencyConfig.java) | Cung cấp kho lưu trữ khóa giao dịch chống nạp/mua trùng. |
 | **Central Router** | [`MainOrderRoute.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/routes/MainOrderRoute.java) | Cấp `OrderId`, kích hoạt WireTap sang Audit, phân luồng theo `serviceType`. |
 | **Audit Log (Async)** | [`AuditRoute.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/routes/AuditRoute.java) | Hàng đợi `seda:hubAuditLog` lưu vết ngầm không chặn luồng chính. |
 | **Dead Letter (DLC)** | [`DeadLetterRoute.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/routes/DeadLetterRoute.java) | Tiếp nhận và cảnh báo giao dịch lỗi mạng vượt quá retry. |
-| **Partner Token** | [`PartnerTokenManager.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/partner/common/PartnerTokenManager.java) | Thread-safe Token Cache (TTL 1h) và Auto-refresh khi gặp 401. |
+| **Partner Token** | [`PartnerTokenManager.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/partner/common/PartnerTokenManager.java) | Proactive refresh (5ph), OAuth2 RFC 6749 thật, graceful fallback. |
+| **Token Scheduler** | [`PartnerTokenRefreshScheduler.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/partner/common/PartnerTokenRefreshScheduler.java) | Warm-up tự động mỗi 60s, phát hiện sớm OAuth2 endpoint có sự cố. |
 | **Scatter-Gather** | [`AirlinePartnerRoute.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/partner/airline/AirlinePartnerRoute.java) | Gọi song song Vietjet & Vietnam Airlines trong tối đa 3000ms. |
 | **Price Aggregator** | [`LowestPriceAggregator.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/hub/aggregator/LowestPriceAggregator.java) | So sánh giá vé giữa các hãng và chọn vé rẻ nhất cho khách. |
 | **Circuit Breaker** | [`TopupPartnerRoute.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/partner/telco/TopupPartnerRoute.java) | Chặn nạp trùng, ngắt mạch khi nhà mạng lỗi và fallback qua Napas. |
-| **Streaming Batch** | [`PartnerFileInboundRoute.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/partner/inbound/PartnerFileInboundRoute.java) | Đọc stream 4 loại file đối tác (CSV, XML, JSON, Napas TXT). |
+| **Streaming Batch** | [`PartnerFileInboundRoute.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/main/java/com/demo_apache_camel/partner/reconciliation/PartnerFileInboundRoute.java) | Đọc stream 4 loại file đối tác (CSV, XML, JSON, Napas TXT). |
 
 ---
 
-## 6. BẰNG CHỨNG KIỂM THỬ TỰ ĐỘNG
+## 6. BẰNG CHỨNG KIỂM THỬ TỰ ĐỘNG — **22/22 PASS**
 
 Dự án đã được tích hợp bộ kiểm thử tự động toàn diện trong [`CamelRouteTest.java`](file:///c:/WorkSpace/ZenoAI/APACHE_CAMEL/demo_apache_camel/src/test/java/com/demo_apache_camel/CamelRouteTest.java).
 
-Kết quả thực thi thực tế từ Maven:
+Kết quả thực thi thực tế từ Maven (sau khi nâng cấp Production-Grade Token):
 ```
 [INFO] -------------------------------------------------------
 [INFO]  T E S T S
 [INFO] -------------------------------------------------------
 [INFO] Running com.demo_apache_camel.CamelRouteTest
-[INFO] Tests run: 18, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 9.307 s
+[INFO] Tests run: 21, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 7.539 s
 [INFO] Running com.demo_apache_camel.DemoApacheCamelApplicationTests
-[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.018 s
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.020 s
 [INFO] 
 [INFO] Results:
-[INFO] Tests run: 19, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 22, Failures: 0, Errors: 0, Skipped: 0
 [INFO] ------------------------------------------------------------------------
 [INFO] BUILD SUCCESS
 [INFO] ------------------------------------------------------------------------
 ```
 
-### Danh sách 19 ca kiểm thử đã được xác minh thành công:
+### Danh sách 22 ca kiểm thử đã được xác minh thành công:
+
+**Domain Services (1-9):**
 1. `testTopupViettelRoute`: Content-Based Router phân luồng và chiết khấu Viettel 5%.
 2. `testFlightScatterGatherRoute`: Scatter-Gather EIP tìm vé đa hãng và chọn vé rẻ nhất.
-3. `testFlightBookingRoute`: Đặt vé Vietjet LCC (giữ chỗ 12h, PNR VJ-).
-4. `testFlightBookingVietnamAirlinesRoute`: Đặt vé VNA Sabre GDS (giữ chỗ 24h, 23kg hành lý, dặm Lotusmiles).
-5. `testTopupRetryAndFallback`: Tự phục hồi Retry 2 lần và Fallback qua Napas khi nhà mạng gặp sự cố.
-6. `testUnsupportedService`: Từ chối dịch vụ không xác định với mã `REJECTED`.
-7. `testViettelCsvParsing`: Phân tích Streaming file CSV Viettel (phân cách `|`).
-8. `testSabreXmlParsing`: Phân tích Streaming file XML Hàng không Sabre GDS.
-9. `testVinwondersJsonParsing`: Phân tích Streaming file JSON Batch VinWonders.
-10. `testNapasTxtParsing`: Phân tích Streaming file Fixed-Length Napas.
-11. `testOrderControllerSuccessWithCorrelationId`: Ingress Gateway tự sinh và bảo toàn Trace ID.
-12. `testOrderControllerFailFastValidation`: Chặn request rác trong 1ms (HTTP 400 Bad Request).
-13. `testOrderControllerRejectedServiceReturns422`: Dịch vụ bị từ chối trả về HTTP 422 Unprocessable Entity.
-14. `testOrderControllerInquiryAndHealth`: Tra cứu trạng thái đơn hàng và kiểm tra Probe K8s.
-15. `testRestDslOrderBridge`: Cầu nối Camel REST DSL tiếp nhận đơn thành công.
-16. `testPartnerTokenLifecycle`: Quản lý vòng đời OAuth2 Token đối tác (cấp mới, lưu cache, thu hồi khi 401).
-17. `testIdempotentConsumerDuplicateBlocking`: Chặn đứng giao dịch gửi trùng `orderId` (Idempotent Consumer EIP).
-18. `testSecurityHeaderFilter`: Bộ lọc Header loại bỏ `Authorization`, `Cookie`, `X-Client-Secret`.
-19. `contextLoads`: Khởi tạo thành công toàn bộ Spring Boot Application Context và CamelContext.
+3. `testFlightBookingRoute`: Đặt vé và giữ chỗ PNR qua Booking Gateway.
+4. `testTopupRetryAndFallback`: Retry 2 lần và Fallback qua Napas khi nhà mạng gặp sự cố.
+5. `testUnsupportedService`: Từ chối dịch vụ không xác định với mã `REJECTED`.
+6. `testBillService`: Thanh toán hóa đơn EVN qua Attraction Gateway.
+7. `testWintelEsimService`: Cấp phát eSIM QR Code Wintel thành công.
+8. `testBaoVietInsuranceService`: Mụa bảo hiểm du lịch Bảo Việt và cấp mã hợp đồng.
+9. `testVinwondersAttractionService`: Xuất vé vui chơi VinWonders thành công.
+
+**Controller & Validation (10-12):**
+10. `testOrderControllerIntegration`: Ingress Gateway tự sinh, bảo toàn Trace ID và HTTP status đúng chuẩn.
+11. `testOrderControllerValidation`: Chặn request rác trong 1ms (HTTP 400 Bad Request).
+12. `testIdempotencyDuplicateOrder`: Chặn đứng giao dịch gửi trùng `orderId` (Idempotent Consumer EIP).
+
+**Security Layer (13-16):**
+13. `testSecurityHeaderFilter`: Bộ lọc Header loại bỏ `Authorization`, `Cookie`, `X-Client-Secret`.
+14. `testInboundSecurityFilter_InvalidSignature`: Chặn 401 khi JWT có chữ ký số sai (giả mạo).
+15. `testInboundSecurityFilter_ValidJWT`: JWT thật hợp lệ → Pass filter, gắn JwtClaims vào request.
+16. `testJwtValidatorIssueAndValidate`: Tạo JWT thật HS256, validate subject/issuer/expiry/roles.
+
+**Token Management (17-18):**
+17. `testPartnerTokenManagerLifecycle`: Proactive cache, evict 401, warmUp không exception.
+18. `testJwtValidatorIssueAndValidate`: Tạo và validate JWT thật với JJWT (bao gồm `testPartnerTokenManagerLifecycle`).
+
+**Batch & Reconciliation (19-22):**
+19. `testViettelCsvReconciliationParser`: Phân tích file CSV Viettel (đối soát 3 bản ghi).
+20. `testSabreXmlReconciliationParser`: Phân tích file XML Sabre GDS (2 booking).
+21. `testVinwondersJsonReconciliationParser`: Phân tích file JSON VinWonders (2 vé).
+22. `testNapasFixedLengthReconciliationParser`: Phân tích file Fixed-Length Napas (2 giao dịch).

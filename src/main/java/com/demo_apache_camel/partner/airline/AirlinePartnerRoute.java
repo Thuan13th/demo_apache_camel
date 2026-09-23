@@ -11,10 +11,11 @@ import org.springframework.stereotype.Component;
 import java.util.UUID;
 
 /**
- * [PHÂN HỆ HÀNG KHÔNG - AIRLINE PARTNER INTEGRATION]
- * Hiện thực hóa mẫu thiết kế kinh điển: SCATTER-GATHER EIP
- * 1. Scatter: Bắn yêu cầu khảo giá vé song song sang Vietjet Air và Vietnam Airlines.
- * 2. Gather: LowestPriceAggregator tự động so khớp và chọn chuyến bay có giá rẻ nhất cho khách.
+ * [PHÂN HỆ HÀNG KHÔNG - AIRLINE PARTNER ORCHESTRATOR]
+ * Tuyến điều phối nghiệp vụ Hàng không:
+ * 1. Scatter-Gather EIP: Gửi yêu cầu song song tới Vietjet và Vietnam Airlines.
+ * 2. Gather: LowestPriceAggregator so khớp và trả về vé rẻ nhất.
+ * 3. Booking Gateway: Đặt và cấp mã giữ chỗ PNR chính thức.
  */
 @Slf4j
 @Component
@@ -44,44 +45,28 @@ public class AirlinePartnerRoute extends RouteBuilder {
                     req != null ? req.getOrderId() : "N/A",
                     "SUCCESS",
                     "FLIGHT",
-                    best.getPrice(),
-                    String.format("Tìm thấy vé rẻ nhất: %s (%s) giá %,.0f VND", best.getAirline(), best.getFlightNumber(), best.getPrice()),
-                    best.getAirline()
+                    best != null ? best.getPrice() : 0.0,
+                    String.format("Tìm thấy vé rẻ nhất: %s (%s) giá %,.0f VND", 
+                            best != null ? best.getAirline() : "N/A", 
+                            best != null ? best.getFlightNumber() : "N/A", 
+                            best != null ? best.getPrice() : 0.0),
+                    best != null ? best.getAirline() : "AIRLINE_HUB"
                 ));
             });
 
-        // 2. Adapter Vietjet Air
-        from("direct:callVietjetAir")
-            .routeId("adapter-vietjet-air")
-            .delay(100)
-            .process(exchange -> {
-                OrderRequest req = exchange.getProperty("OriginalRequest", OrderRequest.class);
-                String dest = (req != null && req.getDestination() != null) ? req.getDestination() : "HAN";
-                exchange.getMessage().setBody(new FlightQuote("Vietjet Air", "VJ-152", 1450000.0, "SGN", dest));
-            });
-
-        // 3. Adapter Vietnam Airlines
-        from("direct:callVietnamAirlines")
-            .routeId("adapter-vietnam-airlines")
-            .delay(100)
-            .process(exchange -> {
-                OrderRequest req = exchange.getProperty("OriginalRequest", OrderRequest.class);
-                String dest = (req != null && req.getDestination() != null) ? req.getDestination() : "HAN";
-                exchange.getMessage().setBody(new FlightQuote("Vietnam Airlines", "VN-246", 1850000.0, "SGN", dest));
-            });
-
-        // 4. Tuyến Đặt & Giữ chỗ (Booking & Ticket Issuing)
+        // 2. Tuyến Đặt & Giữ chỗ vé máy bay (Booking & PNR Issuance)
         from("direct:flightBookingPartnerService")
             .routeId("airline-booking-orchestrator")
             .process(exchange -> {
                 OrderRequest req = exchange.getMessage().getBody(OrderRequest.class);
                 String pnr = "PNR-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
                 exchange.getMessage().setBody(new OrderResponse(
-                    req.getOrderId(),
+                    req != null ? req.getOrderId() : "N/A",
                     "SUCCESS",
                     "FLIGHT_BOOKING",
-                    req.getAmount() != null ? req.getAmount() : 1850000.0,
-                    String.format("Đặt và giữ vé thành công! Mã PNR: %s (Hành khách: %s)", pnr, req.getCustomerName()),
+                    req != null && req.getAmount() != null ? req.getAmount() : 1850000.0,
+                    String.format("Đặt và giữ vé thành công! Mã PNR: %s (Hành khách: %s)", 
+                            pnr, req != null ? req.getCustomerName() : "Khách hàng"),
                     "AIRLINE_BOOKING_GATEWAY"
                 ));
             });

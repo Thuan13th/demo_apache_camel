@@ -65,15 +65,97 @@ hub:
     retry-delay-ms: ${PARTNER_RETRY_DELAY_MS:1000}
     parallel-timeout-ms: ${PARTNER_PARALLEL_TIMEOUT_MS:3000}
 
+  # =========================================================================
+  # 3. BẢO MẬT JWT INBOUND (Client → Hub)
+  # Cơ chế: HMAC-SHA256 (HS256) — Symmetric key
+  # Production: Đặt JWT_SECRET trong biến môi trường hoặc Vault (min 256-bit)
+  # =========================================================================
+  security:
+    jwt:
+      # Secret key HMAC-SHA256 (min 32 chars/256-bit).
+      # Production: export JWT_SECRET="your-very-long-random-secret-key-here"
+      secret: ${JWT_SECRET:CHANGE_ME_production_256bit_secret_key_hub_2026}
+      # Hạn dùng token (giây). Mặc định 3600 = 1 giờ.
+      expiration-seconds: ${JWT_EXPIRATION_SECONDS:3600}
+      # Định danh Hub phát hành token (iss claim)
+      issuer: ${JWT_ISSUER:enterprise-service-hub}
+      # Khoảng lệch đồng hồ cho phép (giây) — tránh reject token hợp lệ
+      clock-skew-seconds: ${JWT_CLOCK_SKEW_SECONDS:60}
+
+  # =========================================================================
+  # 4. OAUTH2 CLIENT CREDENTIALS - PARTNER OUTBOUND (Hub → Partner)
+  # Cơ chế: RFC 6749 Client Credentials Flow
+  # Chiến lược: Proactive refresh (5 phút trước hết hạn) + Graceful Fallback (local)
+  # Production: Set biến môi trường VIETJET_TOKEN_URL, VIETJET_CLIENT_ID, VIETJET_CLIENT_SECRET
+  # =========================================================================
+  partner-oauth2:
+    # Refresh token sớm trước khi hết hạn X giây (tránh race condition)
+    token-refresh-buffer-seconds: ${PARTNER_TOKEN_REFRESH_BUFFER:300}
+    connect-timeout-ms: ${PARTNER_OAUTH2_CONNECT_TIMEOUT:3000}
+    read-timeout-ms: ${PARTNER_OAUTH2_READ_TIMEOUT:5000}
+    max-retry-attempts: ${PARTNER_OAUTH2_MAX_RETRY:3}
+    retry-delay-ms: ${PARTNER_OAUTH2_RETRY_DELAY:1000}
+    partners:
+      VIETJET:
+        token-url: ${VIETJET_TOKEN_URL:http://localhost:9999/mock/vietjet/oauth2/token}
+        client-id: ${VIETJET_CLIENT_ID:vietjet-hub-client}
+        client-secret: ${VIETJET_CLIENT_SECRET:vietjet-secret}
+        scope: ${VIETJET_SCOPE:flight:read flight:book}
+      VNA:
+        token-url: ${VNA_TOKEN_URL:http://localhost:9999/mock/vna/oauth2/token}
+        client-id: ${VNA_CLIENT_ID:vna-hub-client}
+        client-secret: ${VNA_CLIENT_SECRET:vna-secret}
+        scope: ${VNA_SCOPE:flight:read flight:book}
+      VIETTEL:
+        token-url: ${VIETTEL_TOKEN_URL:http://localhost:9999/mock/viettel/oauth2/token}
+        client-id: ${VIETTEL_CLIENT_ID:viettel-hub-client}
+        client-secret: ${VIETTEL_CLIENT_SECRET:viettel-secret}
+        scope: ${VIETTEL_SCOPE:topup:execute}
+      MOBI:
+        token-url: ${MOBI_TOKEN_URL:http://localhost:9999/mock/mobi/oauth2/token}
+        client-id: ${MOBI_CLIENT_ID:mobi-hub-client}
+        client-secret: ${MOBI_CLIENT_SECRET:mobi-secret}
+        scope: ${MOBI_SCOPE:topup:execute}
+      VINA:
+        token-url: ${VINA_TOKEN_URL:http://localhost:9999/mock/vina/oauth2/token}
+        client-id: ${VINA_CLIENT_ID:vina-hub-client}
+        client-secret: ${VINA_CLIENT_SECRET:vina-secret}
+        scope: ${VINA_SCOPE:topup:execute}
+      WINTEL:
+        token-url: ${WINTEL_TOKEN_URL:http://localhost:9999/mock/wintel/oauth2/token}
+        client-id: ${WINTEL_CLIENT_ID:wintel-hub-client}
+        client-secret: ${WINTEL_CLIENT_SECRET:wintel-secret}
+        scope: ${WINTEL_SCOPE:sim:activate esim:issue}
+      BAOVIET:
+        token-url: ${BAOVIET_TOKEN_URL:http://localhost:9999/mock/baoviet/oauth2/token}
+        client-id: ${BAOVIET_CLIENT_ID:baoviet-hub-client}
+        client-secret: ${BAOVIET_CLIENT_SECRET:baoviet-secret}
+        scope: ${BAOVIET_SCOPE:insurance:issue}
+      PVI:
+        token-url: ${PVI_TOKEN_URL:http://localhost:9999/mock/pvi/oauth2/token}
+        client-id: ${PVI_CLIENT_ID:pvi-hub-client}
+        client-secret: ${PVI_CLIENT_SECRET:pvi-secret}
+        scope: ${PVI_SCOPE:insurance:issue}
+      VINWONDERS:
+        token-url: ${VINWONDERS_TOKEN_URL:http://localhost:9999/mock/vinwonders/oauth2/token}
+        client-id: ${VINWONDERS_CLIENT_ID:vinwonders-hub-client}
+        client-secret: ${VINWONDERS_CLIENT_SECRET:vinwonders-secret}
+        scope: ${VINWONDERS_SCOPE:ticket:issue}
+      SUNWORLD:
+        token-url: ${SUNWORLD_TOKEN_URL:http://localhost:9999/mock/sunworld/oauth2/token}
+        client-id: ${SUNWORLD_CLIENT_ID:sunworld-hub-client}
+        client-secret: ${SUNWORLD_CLIENT_SECRET:sunworld-secret}
+        scope: ${SUNWORLD_SCOPE:ticket:issue}
+
 # =========================================================================
-# 3. BẢO MẬT & CHECKSUM (Chuẩn Gateway VNLINK / Viễn thông)
+# 5. BẢO MẬT CHECKSUM VIỄN THÔNG (Chuẩn Gateway VNLINK)
 # =========================================================================
 security:
   telecom-checksum-secret: ${TELECOM_CHECKSUM_SECRET:crnvi5BUYV77Bcberv}
   enable-checksum-validation: ${ENABLE_CHECKSUM_VALIDATION:false}
 
 # =========================================================================
-# 4. GIÁM SÁT ACTUATOR & KUBERNETES PROBE
+# 6. GIÁM SÁT ACTUATOR & KUBERNETES PROBE
 # =========================================================================
 management:
   endpoints:
@@ -85,3 +167,4 @@ management:
       show-details: always
       probes:
         enabled: true
+

@@ -10,10 +10,16 @@ import java.util.UUID;
 /**
  * [HUB CENTRAL ORCHESTRATOR]
  * Tuyến điều phối trung tâm của Hub:
- * 1. Tiếp nhận mọi yêu cầu đã được chuẩn hóa về OrderRequest (từ REST API hoặc từ các File Parser của đối tác).
+ * 1. Tiếp nhận mọi yêu cầu đã được chuẩn hóa về OrderRequest.
  * 2. Cấp phát OrderId nội bộ và lưu vào Exchange Property.
  * 3. Kích hoạt WireTap bắn bản sao sang hàng đợi Audit Log ngầm của Hub.
- * 4. Content-Based Router phân luồng sang các phân hệ đối tác (Telco, Airline, Bill).
+ * 4. Content-Based Router phân luồng sang các domain đối tác:
+ *    - TOPUP: Nạp thẻ viễn thông (Viettel, Mobi, Vina, Napas)
+ *    - FLIGHT: Khảo giá vé máy bay đa hãng (Scatter-Gather)
+ *    - FLIGHT_BOOKING: Đặt và giữ chỗ vé máy bay (PNR)
+ *    - SIM: Đấu nối SIM & cấp mã QR eSIM (Wintel, Viettel)
+ *    - INSURANCE: Bảo hiểm du lịch / tai nạn (Bảo Việt, PVI)
+ *    - ATTRACTION / BILL: Vé tham quan vui chơi & thanh toán dịch vụ (VinWonders, SunWorld, EVN)
  */
 @Component
 public class MainOrderRoute extends RouteBuilder {
@@ -45,7 +51,7 @@ public class MainOrderRoute extends RouteBuilder {
             // 2. WireTap EIP: Ghi vết kiểm toán ngầm bất đồng bộ
             .wireTap("seda:hubAuditLog")
 
-            // 3. Content-Based Router: Phân luồng sang các Adapter Đối tác
+            // 3. Content-Based Router: Phân luồng sang các Phân hệ Đối tác theo Domain
             .choice()
                 .when(simple("${body.serviceType} == 'TOPUP'"))
                     .log("[HUB-CORE] => Chuyển tiếp sang Cổng Đối tác Viễn thông (Telco Partner Gateway)")
@@ -59,9 +65,17 @@ public class MainOrderRoute extends RouteBuilder {
                     .log("[HUB-CORE] => Chuyển tiếp sang Cổng Đặt & Giữ vé Hàng không (Flight Booking Gateway)")
                     .to("direct:flightBookingPartnerService")
 
-                .when(simple("${body.serviceType} == 'BILL'"))
-                    .log("[HUB-CORE] => Chuyển tiếp sang Cổng Đối tác Hóa đơn / Dịch vụ (Bill / Attraction Gateway)")
-                    .to("direct:billPartnerService")
+                .when(simple("${body.serviceType} == 'SIM'"))
+                    .log("[HUB-CORE] => Chuyển tiếp sang Cổng Đối tác SIM & eSIM (SIM Partner Gateway)")
+                    .to("direct:simPartnerService")
+
+                .when(simple("${body.serviceType} == 'INSURANCE'"))
+                    .log("[HUB-CORE] => Chuyển tiếp sang Cổng Đối tác Bảo hiểm (Insurance Partner Gateway)")
+                    .to("direct:insurancePartnerService")
+
+                .when(simple("${body.serviceType} == 'ATTRACTION' || ${body.serviceType} == 'BILL'"))
+                    .log("[HUB-CORE] => Chuyển tiếp sang Cổng Đối tác Vé vui chơi / Hóa đơn (Attraction Gateway)")
+                    .to("direct:attractionPartnerService")
 
                 .otherwise()
                     .log("[HUB-CORE] => Dịch vụ không xác định: ${body.serviceType}")
@@ -70,21 +84,10 @@ public class MainOrderRoute extends RouteBuilder {
 
             .log("[HUB-CORE] Hoàn tất điều phối cho [OrderId: ${exchangeProperty.OrderId}]");
 
-        // Luồng xử lý thanh toán dịch vụ / vé tham quan
+        // Tuyến tương thích ngược cho direct:billPartnerService
         from("direct:billPartnerService")
-            .routeId("bill-partner-gateway")
-            .process(exchange -> {
-                OrderRequest req = exchange.getMessage().getBody(OrderRequest.class);
-                OrderResponse resp = new OrderResponse(
-                    req.getOrderId(),
-                    "SUCCESS",
-                    "BILL",
-                    req.getAmount(),
-                    "Thanh toán dịch vụ thành công cho đối tác: " + req.getProvider(),
-                    req.getProvider() != null ? req.getProvider() : "BILL_GATEWAY"
-                );
-                exchange.getMessage().setBody(resp);
-            });
+            .routeId("hub-bill-backward-compat")
+            .to("direct:attractionPartnerService");
 
         // Luồng từ chối khi gặp dịch vụ ngoài danh mục hỗ trợ của Hub
         from("direct:unknownService")
