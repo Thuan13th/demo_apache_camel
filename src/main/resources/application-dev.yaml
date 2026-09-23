@@ -1,0 +1,23 @@
+# =========================================================================
+# PROFILE: DEV / SIT (Môi trường kiểm thử tích hợp hệ thống)
+# =========================================================================
+
+server:
+  port: ${PORT:8080}
+
+logging:
+  level:
+    root: INFO
+    org.apache.camel: INFO
+    com.demo_apache_camel: INFO
+
+hub:
+  environment: dev
+  storage:
+    inbound-path: /var/data/hub/inbound
+    processed-path: /var/data/hub/processed
+    samples-path: /var/data/hub/samples
+
+security:
+  telecom-checksum-secret: ${TELECOM_CHECKSUM_SECRET:dev_secret_key_vnlink_123}
+  enable-checksum-validation: true

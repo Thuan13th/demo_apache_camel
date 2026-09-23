@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IATA_AirBookingExport supplier="SABRE_GDS" batchDate="2026-09-21">
+    <TicketOrders>
+        <Order pnrCode="ABC123" orderRef="ORD-FL-202">
+            <AirlineCode>VN</AirlineCode>
+            <FlightNumber>VN-246</FlightNumber>
+            <Route from="SGN" to="HAN" date="2026-10-01"/>
+            <Passenger name="Tran Thi B" passport="C12345678"/>
+            <Price currency="VND">1850000</Price>
+            <Status>CONFIRMED</Status>
+        </Order>
+        <Order pnrCode="XYZ999" orderRef="ORD-FL-203">
+            <AirlineCode>VJ</AirlineCode>
+            <FlightNumber>VJ-152</FlightNumber>
+            <Route from="SGN" to="DAD" date="2026-10-02"/>
+            <Passenger name="Le Van C" passport="B87654321"/>
+            <Price currency="VND">1450000</Price>
+            <Status>CONFIRMED</Status>
+        </Order>
+    </TicketOrders>
+</IATA_AirBookingExport>

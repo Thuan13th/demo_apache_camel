@@ -1,0 +1,245 @@
+{
+  "info": {
+    "_postman_id": "8f88c3a1-1234-5678-9abc-camelhubdemo",
+    "name": "Apache Camel - Enterprise Service Hub API",
+    "description": "Bộ sưu tập Postman mẫu chuẩn doanh nghiệp để test toàn diện các Enterprise Integration Patterns (EIP) của Apache Camel: Content-Based Router, Scatter-Gather, Retry, Fallback, WireTap.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0. Health Check Service Hub",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/api/orders/health",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "orders", "health"]
+        },
+        "description": "Kiểm tra tình trạng sẵn sàng của Hub và danh sách các đối tác đã tích hợp."
+      }
+    },
+    {
+      "name": "0b. Tra cứu trạng thái đơn hàng (Inquiry / Check Status)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Correlation-Id",
+            "value": "TRACE-INQUIRY-001"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8080/api/orders/FL-ORDER-2026-003/status",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "orders", "FL-ORDER-2026-003", "status"]
+        },
+        "description": "API Tra cứu trạng thái giao dịch: Dành cho Client đối soát hoặc kiểm tra lại đơn khi bị timeout mạng, tránh nạp/mua trùng 2 lần."
+      }
+    },
+    {
+      "name": "1. Topup Viettel (Chiết khấu 5% - Content-Based Router)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"orderId\": \"VT-ORDER-2026-001\",\n  \"customerName\": \"Nguyễn Văn An\",\n  \"serviceType\": \"TOPUP\",\n  \"provider\": \"VIETTEL\",\n  \"amount\": 100000.0\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/api/orders",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "orders"]
+        },
+        "description": "Camel rẽ nhánh sang Viettel Telco Direct, tự động chiết khấu 5% (100,000đ -> 95,000đ) và kích hoạt WireTap ghi log ngầm."
+      }
+    },
+    {
+      "name": "2. Topup Mobifone (Chiết khấu 3% - Content-Based Router)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"orderId\": \"MB-ORDER-2026-002\",\n  \"customerName\": \"Lê Thị Bình\",\n  \"serviceType\": \"TOPUP\",\n  \"provider\": \"MOBI\",\n  \"amount\": 200000.0\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/api/orders",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "orders"]
+        },
+        "description": "Camel rẽ nhánh sang Mobifone Telco Direct, tự động chiết khấu 3% (200,000đ -> 194,000đ)."
+      }
+    },
+    {
+      "name": "3. Tìm vé máy bay song song (Scatter-Gather EIP)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"orderId\": \"FL-ORDER-2026-003\",\n  \"customerName\": \"Trần Quốc Tuấn\",\n  \"serviceType\": \"FLIGHT\",\n  \"destination\": \"HAN\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/api/orders",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "orders"]
+        },
+        "description": "Camel Multicast song song sang Vietjet (1,450,000đ) và Vietnam Airlines (1,850,000đ) trên 2 thread, Aggregator tự động so sánh và chọn vé rẻ nhất."
+      }
+    },
+    {
+      "name": "3b. Đặt vé & Xuất mã PNR (Flight Booking - Giai đoạn 2)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Client-Id",
+            "value": "POSTMAN_CLIENT"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"orderId\": \"FL-BOOKING-2026-004\",\n  \"customerName\": \"Trần Quốc Tuấn\",\n  \"serviceType\": \"FLIGHT_BOOKING\",\n  \"provider\": \"VIETJET\",\n  \"amount\": 1450000.0,\n  \"destination\": \"HAN\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/api/orders",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "orders"]
+        },
+        "description": "Giai đoạn 2 sau khi tìm được giá rẻ nhất: Khách xác nhận đặt vé Vietjet Air, Camel gọi Adapter Vietjet Air để giữ chỗ 12h và cấp mã đặt chỗ PNR chính thức."
+      }
+    },
+    {
+      "name": "3c. Đặt vé Vietnam Airlines (Sabre GDS SOAP/XML - Giai đoạn 2)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Client-Id",
+            "value": "POSTMAN_CLIENT"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"orderId\": \"FL-BOOKING-2026-005\",\n  \"customerName\": \"Đặng Thùy Trang\",\n  \"serviceType\": \"FLIGHT_BOOKING\",\n  \"provider\": \"VIETNAM_AIRLINES\",\n  \"amount\": 1850000.0,\n  \"destination\": \"HAN\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/api/orders",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "orders"]
+        },
+        "description": "Giai đoạn 2 đặt vé Vietnam Airlines: Camel gọi Sabre GDS SOAP/XML Adapter, cấp mã PNR, giữ chỗ 24h, tặng 23kg hành lý và tích lũy dặm Lotusmiles."
+      }
+    },
+    {
+      "name": "4. Thanh toán vé VinWonders (Bill Payment)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"orderId\": \"VW-ORDER-2026-004\",\n  \"customerName\": \"Phạm Minh Châu\",\n  \"serviceType\": \"BILL\",\n  \"provider\": \"VINWONDERS\",\n  \"amount\": 850000.0\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/api/orders",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "orders"]
+        },
+        "description": "Thanh toán vé vui chơi VinWonders qua cổng Bill Gateway."
+      }
+    },
+    {
+      "name": "5. Giả lập lỗi đối tác -> Retry 2 lần & Fallback Napas",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"orderId\": \"VINA-RETRY-005\",\n  \"customerName\": \"Hoàng Gia Bảo\",\n  \"serviceType\": \"TOPUP\",\n  \"provider\": \"VINA\",\n  \"amount\": 999999.0\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/api/orders",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "orders"]
+        },
+        "description": "Số tiền 999999 kích hoạt lỗi 503 giả lập ở cổng Vina. Camel tự động thử lại 2 lần (Exponential Backoff) và kích hoạt Fallback qua cổng Napas mà không làm sập hệ thống."
+      }
+    },
+    {
+      "name": "6. Dịch vụ không xác định (Hub từ chối an toàn)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"orderId\": \"UNKNOWN-006\",\n  \"customerName\": \"Khách Vãng Lai\",\n  \"serviceType\": \"HOTEL_RESORT\",\n  \"amount\": 2500000.0\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8080/api/orders",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "orders"]
+        },
+        "description": "Gửi serviceType chưa được đăng ký trong Hub. Camel bắt nhánh otherwise() và trả về REJECTED an toàn."
+      }
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+# =========================================================================
+# ENTERPRISE SERVICE HUB - CORE APPLICATION CONFIGURATION
+# Kiến trúc chuẩn 12-Factor App & Production Ready (Mô hình Ngân hàng / Viễn thông)
+# =========================================================================
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+spring:
+  application:
+    name: demo_apache_camel
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+  threads:
+    virtual:
+      enabled: true
+  mvc:
+    async:
+      request-timeout: ${SPRING_MVC_ASYNC_REQUEST_TIMEOUT:60s}
+
+# =========================================================================
+# 1. CẤU HÌNH CAMEL SERVLET (Ingress cho Camel REST DSL)
+# =========================================================================
+camel:
+  servlet:
+    mapping:
+      context-path: ${CAMEL_SERVLET_CONTEXT_PATH:/camel/*}
+  springboot:
+    name: EnterpriseServiceHubContext
+    main-run-controller: true
+    # Stream caching: Chống cạn kiệt Stream và tràn RAM khi payload lớn
+    stream-caching:
+      enabled: true
+      spool-threshold: 1048576 # 1MB
+      spool-directory: ${CAMEL_SPOOL_DIR:target/camel-spool}
+    # Graceful shutdown: Bảo vệ giao dịch đang bay không bị đứt đoạn khi restart
+    shutdown-timeout: 10
+    shutdown-routes-in-reverse-order: true
+    endpoint-runtime-statistics-enabled: true
+  threadpool:
+    pool-size: ${CAMEL_THREAD_POOL_SIZE:10}
+    max-pool-size: ${CAMEL_THREAD_MAX_POOL_SIZE:50}
+    max-queue-size: ${CAMEL_THREAD_MAX_QUEUE_SIZE:1000}
+
+# =========================================================================
+# 2. CẤU HÌNH NGHIỆP VỤ HUB TẬP TRUNG (Type-Safe Properties)
+# =========================================================================
+hub:
+  name: Enterprise Service Hub
+  environment: ${HUB_ENVIRONMENT:local}
+  default-timeout-ms: ${HUB_DEFAULT_TIMEOUT_MS:5000}
+  rest:
+    context-path: /api/v1
+    api-doc-path: /api-doc
+    cors-enabled: true
+    title: Enterprise Service Hub REST API
+    version: v1
+  storage:
+    inbound-path: ${HUB_INBOUND_PATH:data/inbound}
+    processed-path: ${HUB_PROCESSED_PATH:data/processed}
+    samples-path: ${HUB_SAMPLES_PATH:data/samples}
+  partner-policy:
+    max-retry-attempts: ${PARTNER_MAX_RETRIES:2}
+    retry-delay-ms: ${PARTNER_RETRY_DELAY_MS:1000}
+    parallel-timeout-ms: ${PARTNER_PARALLEL_TIMEOUT_MS:3000}
+
+# =========================================================================
+# 3. BẢO MẬT & CHECKSUM (Chuẩn Gateway VNLINK / Viễn thông)
+# =========================================================================
+security:
+  telecom-checksum-secret: ${TELECOM_CHECKSUM_SECRET:crnvi5BUYV77Bcberv}
+  enable-checksum-validation: ${ENABLE_CHECKSUM_VALIDATION:false}
+
+# =========================================================================
+# 4. GIÁM SÁT ACTUATOR & KUBERNETES PROBE
+# =========================================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,camelroutes,metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true

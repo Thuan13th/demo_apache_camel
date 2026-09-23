@@ -1,0 +1,23 @@
+# =========================================================================
+# PROFILE: LOCAL (Môi trường phát triển cục bộ cho lập trình viên)
+# =========================================================================
+
+server:
+  port: 8080
+
+logging:
+  level:
+    root: INFO
+    org.apache.camel: INFO
+    com.demo_apache_camel: DEBUG
+
+hub:
+  environment: local
+  storage:
+    inbound-path: data/inbound
+    processed-path: data/processed
+    samples-path: data/samples
+
+security:
+  telecom-checksum-secret: "crnvi5BUYV77Bcberv"
+  enable-checksum-validation: false

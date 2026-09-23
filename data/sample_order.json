@@ -1,0 +1,8 @@
+{
+  "orderId": "FILE-ORD-888",
+  "customerName": "Hoàng Thị Mai",
+  "serviceType": "TOPUP",
+  "provider": "MOBI",
+  "amount": 200000.0,
+  "destination": null
+}

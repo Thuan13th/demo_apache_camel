@@ -1,0 +1,21 @@
+{
+  "batchId": "BATCH-VW-20260921",
+  "parkCode": "VINWONDERS_NHA_TRANG",
+  "totalTickets": 2,
+  "data": [
+    {
+      "bookingId": "VW-88991",
+      "ticketType": "ADULT_ALL_IN_ONE",
+      "qrCode": "QR_VW_NHT_9918273645",
+      "validDate": "2026-09-25",
+      "price": 850000.0
+    },
+    {
+      "bookingId": "VW-88992",
+      "ticketType": "CHILD_UNDER_140CM",
+      "qrCode": "QR_VW_NHT_9918273646",
+      "validDate": "2026-09-25",
+      "price": 600000.0
+    }
+  ]
+}
