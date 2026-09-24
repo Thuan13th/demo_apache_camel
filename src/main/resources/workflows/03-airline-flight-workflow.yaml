@@ -1,0 +1,50 @@
+# =========================================================================
+# WORKFLOW: AIRLINE FLIGHT FARE SEARCH & BOOKING PIPELINE
+# Style: Declarative YAML Workflow (Tương tự GitHub Actions)
+# Trigger (on): direct:flightPartnerService & direct:flightBookingPartnerService
+# =========================================================================
+
+- route:
+    id: airline-partner-orchestrator
+    description: "Pipeline tìm vé máy bay song song đa hãng (Scatter-Gather)"
+    from:
+      uri: direct:flightPartnerService
+      steps:
+        - setProperty:
+            name: OriginalRequest
+            expression:
+              simple: "${body}"
+        - log:
+            message: "[WORKFLOW-AIRLINE] Kích hoạt Scatter-Gather tìm vé song song từ Vietjet và Vietnam Airlines..."
+            loggingLevel: INFO
+        - multicast:
+            parallelProcessing: true
+            aggregationStrategy: "lowestPriceAggregator"
+            steps:
+              - to: "direct:callVietjetAir"
+              - to: "direct:callVietnamAirlines"
+        - to: "bean:airlineActions?method=finalizeBestQuote"
+
+- route:
+    id: adapter-vietjet-air
+    description: "Action lấy báo giá vé Vietjet Air"
+    from:
+      uri: direct:callVietjetAir
+      steps:
+        - to: "bean:airlineActions?method=quoteVietjet"
+
+- route:
+    id: adapter-vietnam-airlines
+    description: "Action lấy báo giá vé Vietnam Airlines"
+    from:
+      uri: direct:callVietnamAirlines
+      steps:
+        - to: "bean:airlineActions?method=quoteVna"
+
+- route:
+    id: airline-booking-orchestrator
+    description: "Pipeline đặt & giữ chỗ vé máy bay (PNR Issuance)"
+    from:
+      uri: direct:flightBookingPartnerService
+      steps:
+        - to: "bean:airlineActions?method=bookFlight"

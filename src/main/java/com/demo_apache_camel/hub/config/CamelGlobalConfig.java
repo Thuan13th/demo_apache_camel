@@ -46,6 +46,30 @@ public class CamelGlobalConfig {
 
                 // 4. Tắt tracing chi tiết ở mức context để tối ưu hiệu năng
                 camelContext.setTracing(false);
+
+                // 5. Tự động nạp toàn bộ các Workflow YAML (kiểu GitHub Actions) từ classpath:workflows/*.yaml
+                try {
+                    org.springframework.core.io.support.PathMatchingResourcePatternResolver resolver =
+                            new org.springframework.core.io.support.PathMatchingResourcePatternResolver();
+                    org.springframework.core.io.Resource[] resources = resolver.getResources("classpath*:workflows/*.yaml");
+                    for (org.springframework.core.io.Resource res : resources) {
+                        if (res.isReadable()) {
+                            try {
+                                log.info("[WORKFLOW-LOADER] Đang nạp Declarative Workflow: {}", res.getFilename());
+                                org.apache.camel.spi.Resource camelRes = org.apache.camel.support.ResourceHelper.fromBytes(
+                                        res.getFilename(), res.getInputStream().readAllBytes()
+                                );
+                                org.apache.camel.support.PluginHelper.getRoutesLoader(camelContext).loadRoutes(camelRes);
+                            } catch (Exception fileEx) {
+                                log.error("[WORKFLOW-LOADER] Lỗi khi nạp file Workflow {}: {}", res.getFilename(), fileEx.getMessage(), fileEx);
+                                throw fileEx;
+                            }
+                        }
+                    }
+                } catch (Exception ex) {
+                    log.error("[WORKFLOW-LOADER] Quá trình nạp Workflow YAML gặp lỗi: {}", ex.getMessage(), ex);
+                    throw new RuntimeException("Lỗi nạp Declarative Workflow YAML", ex);
+                }
             }
 
             @Override

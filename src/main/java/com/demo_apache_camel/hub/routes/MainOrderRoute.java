@@ -77,6 +77,14 @@ public class MainOrderRoute extends RouteBuilder {
                     .log("[HUB-CORE] => Chuyển tiếp sang Cổng Đối tác Vé vui chơi / Hóa đơn (Attraction Gateway)")
                     .to("direct:attractionPartnerService")
 
+                .when(simple("${body.serviceType} == 'VOUCHER'"))
+                    .log("[HUB-CORE] => Chuyển tiếp sang Phân hệ E-Voucher (Khai báo 100% bằng YAML DSL)")
+                    .to("direct:voucherPartnerService")
+
+                .when(simple("${body.serviceType} == 'DYNAMIC'"))
+                    .log("[HUB-CORE] => Chuyển tiếp sang Tuyến Điều phối Động Hướng Cấu hình (Config-Driven Dynamic Routing)")
+                    .to("direct:configDrivenDispatch")
+
                 .otherwise()
                     .log("[HUB-CORE] => Dịch vụ không xác định: ${body.serviceType}")
                     .to("direct:unknownService")

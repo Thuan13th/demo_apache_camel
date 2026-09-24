@@ -398,4 +398,65 @@ public class CamelRouteTest {
         assertEquals("ORD-PAY-0001", results.get(0).getOrderId());
         assertEquals(100000.0, results.get(0).getFinalAmount());
     }
+
+    @Test
+    @DisplayName("21. Declarative YAML DSL: Xử lý phát hành Voucher GotIt hoàn toàn bằng YAML")
+    void testDeclarativeYamlGotItVoucherRoute() {
+        OrderRequest req = new OrderRequest("TEST-VC-01", "Hoàng Kim", "VOUCHER", "GOTIT", 200000.0, null);
+        OrderResponse response = producerTemplate.requestBody("direct:processOrder", req, OrderResponse.class);
+
+        assertNotNull(response);
+        assertEquals("SUCCESS", response.getStatus());
+        assertEquals("YAML_DSL_GOTIT_GATEWAY", response.getProcessedBy());
+        assertEquals(180000.0, response.getFinalAmount());
+        assertTrue(response.getMessage().contains("GotIt"));
+    }
+
+    @Test
+    @DisplayName("22. Declarative YAML DSL: Xử lý phát hành Voucher UrBox hoàn toàn bằng YAML")
+    void testDeclarativeYamlUrBoxVoucherRoute() {
+        OrderRequest req = new OrderRequest("TEST-VC-02", "Ngô Bảo", "VOUCHER", "URBOX", 100000.0, null);
+        OrderResponse response = producerTemplate.requestBody("direct:processOrder", req, OrderResponse.class);
+
+        assertNotNull(response);
+        assertEquals("SUCCESS", response.getStatus());
+        assertEquals("YAML_DSL_URBOX_GATEWAY", response.getProcessedBy());
+        assertEquals(92000.0, response.getFinalAmount());
+        assertTrue(response.getMessage().contains("UrBox"));
+    }
+
+    @Test
+    @DisplayName("23. Declarative YAML DSL: Từ chối nhà cung cấp Voucher không hỗ trợ")
+    void testDeclarativeYamlUnsupportedVoucherRoute() {
+        OrderRequest req = new OrderRequest("TEST-VC-03", "Trần D", "VOUCHER", "UNKNOWN_PARTNER", 50000.0, null);
+        OrderResponse response = producerTemplate.requestBody("direct:processOrder", req, OrderResponse.class);
+
+        assertNotNull(response);
+        assertEquals("REJECTED", response.getStatus());
+        assertEquals("YAML_DSL_VOUCHER_GATEWAY", response.getProcessedBy());
+    }
+
+    @Test
+    @DisplayName("24. Config-Driven Dynamic Routing: Điều phối tự động đối tác đã khai báo trong application.yaml")
+    void testConfigDrivenDynamicRouting() {
+        // VIETTEL đã được khai báo trong application.yaml -> Dynamic Router tự nhận diện
+        OrderRequest req = new OrderRequest("TEST-DYN-01", "Lê Văn F", "DYNAMIC", "VIETTEL", 50000.0, null);
+        OrderResponse response = producerTemplate.requestBody("direct:processOrder", req, OrderResponse.class);
+
+        assertNotNull(response);
+        assertEquals("SUCCESS", response.getStatus());
+        assertEquals("DYNAMIC_CONFIG_ROUTER_VIETTEL", response.getProcessedBy());
+        assertTrue(response.getMessage().contains("VIETTEL"));
+    }
+
+    @Test
+    @DisplayName("25. Config-Driven Dynamic Routing: Từ chối đối tác chưa khai báo trong application.yaml")
+    void testConfigDrivenDynamicRoutingUnregisteredPartner() {
+        OrderRequest req = new OrderRequest("TEST-DYN-02", "Đỗ Văn G", "DYNAMIC", "UNREGISTERED_BANK", 50000.0, null);
+        OrderResponse response = producerTemplate.requestBody("direct:processOrder", req, OrderResponse.class);
+
+        assertNotNull(response);
+        assertEquals("REJECTED", response.getStatus());
+        assertEquals("DYNAMIC_CONFIG_GUARD", response.getProcessedBy());
+    }
 }

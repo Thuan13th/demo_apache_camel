@@ -1,0 +1,74 @@
+# =========================================================================
+# WORKFLOW: E-VOUCHER PARTNER ORCHESTRATION PIPELINE
+# Style: Declarative YAML Workflow (Tương tự GitHub Actions)
+# Trigger (on): direct:voucherPartnerService
+# =========================================================================
+
+- route:
+    id: declarative-voucher-orchestrator
+    description: "Pipeline điều phối phân hệ E-Voucher (GotIt & UrBox)"
+    from:
+      uri: direct:voucherPartnerService
+      steps:
+        - log:
+            message: "[WORKFLOW-VOUCHER] Tiếp nhận yêu cầu mua E-Voucher [OrderId: ${body.orderId}, Provider: ${body.provider}]"
+            loggingLevel: INFO
+        - choice:
+            when:
+              - simple: "${body.provider} == 'GOTIT'"
+                steps:
+                  - to: "direct:callGotItVoucher"
+              - simple: "${body.provider} == 'URBOX'"
+                steps:
+                  - to: "direct:callUrBoxVoucher"
+            otherwise:
+              steps:
+                - to: "direct:callUnknownVoucher"
+
+- route:
+    id: adapter-gotit-voucher-yaml
+    from:
+      uri: direct:callGotItVoucher
+      steps:
+        - log:
+            message: "[WORKFLOW-STEP] Đang phát hành Voucher GotIt cho OrderId: ${body.orderId}"
+            loggingLevel: INFO
+        - setBody:
+            simple: >-
+              {"orderId":"${body.orderId}","status":"SUCCESS","serviceType":"VOUCHER","finalAmount":180000.0,"message":"Phát hành E-Voucher GotIt 200,000 VND thành công (Chiết khấu 10% theo cấu hình YAML)","processedBy":"YAML_DSL_GOTIT_GATEWAY"}
+        - unmarshal:
+            json:
+              library: Jackson
+              unmarshal-type: "com.demo_apache_camel.hub.model.OrderResponse"
+
+- route:
+    id: adapter-urbox-voucher-yaml
+    from:
+      uri: direct:callUrBoxVoucher
+      steps:
+        - log:
+            message: "[WORKFLOW-STEP] Đang phát hành Voucher UrBox cho OrderId: ${body.orderId}"
+            loggingLevel: INFO
+        - setBody:
+            simple: >-
+              {"orderId":"${body.orderId}","status":"SUCCESS","serviceType":"VOUCHER","finalAmount":92000.0,"message":"Phát hành E-Voucher UrBox 100,000 VND thành công (Chiết khấu 8% theo cấu hình YAML)","processedBy":"YAML_DSL_URBOX_GATEWAY"}
+        - unmarshal:
+            json:
+              library: Jackson
+              unmarshal-type: "com.demo_apache_camel.hub.model.OrderResponse"
+
+- route:
+    id: adapter-unknown-voucher-yaml
+    from:
+      uri: direct:callUnknownVoucher
+      steps:
+        - log:
+            message: "[WORKFLOW-STEP] Nhà cung cấp E-Voucher không hỗ trợ: ${body.provider}"
+            loggingLevel: WARN
+        - setBody:
+            simple: >-
+              {"orderId":"${body.orderId}","status":"REJECTED","serviceType":"VOUCHER","finalAmount":0.0,"message":"Nhà cung cấp E-Voucher chưa được hỗ trợ trên Hub","processedBy":"YAML_DSL_VOUCHER_GATEWAY"}
+        - unmarshal:
+            json:
+              library: Jackson
+              unmarshal-type: "com.demo_apache_camel.hub.model.OrderResponse"

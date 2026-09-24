@@ -1,0 +1,104 @@
+# =========================================================================
+# WORKFLOW: TELCO AIRTIME TOPUP PIPELINE
+# Style: Declarative YAML Workflow (Tương tự GitHub Actions)
+# Trigger (on): direct:topupPartnerService
+# =========================================================================
+
+- routeConfiguration:
+    id: "telcoErrorConfig"
+    onException:
+      - onException:
+          handled:
+            constant: "true"
+          exception:
+            - "java.lang.IllegalStateException"
+          redeliveryPolicy:
+            maximumRedeliveries: 2
+            redeliveryDelay: 500
+            retryAttemptedLogLevel: WARN
+          steps:
+            - to: "direct:napasFallbackGateway"
+
+- route:
+    id: telco-partner-orchestrator
+    routeConfigurationId: "telcoErrorConfig"
+    description: "Pipeline nạp thẻ viễn thông (Idempotency Guard & Failover)"
+    from:
+      uri: direct:topupPartnerService
+      steps:
+        - setProperty:
+            name: OriginalRequest
+            expression:
+              simple: "${body}"
+        - idempotentConsumer:
+            idempotentRepository: "hubIdempotentRepository"
+            skipDuplicate: false
+            expression:
+              simple: "${body.orderId}"
+            steps:
+              - filter:
+                  expression:
+                    simple: "${exchangeProperty.CamelDuplicateMessage} == true"
+                  steps:
+                    - to: "bean:telcoActions?method=duplicateRejected"
+                    - stop: {}
+              - choice:
+                  when:
+                    - simple: "${body.provider} == 'VIETTEL'"
+                      steps:
+                        - to: "direct:callViettelTelco"
+                    - simple: "${body.provider} == 'MOBI'"
+                      steps:
+                        - to: "direct:callMobiTelco"
+                    - simple: "${body.provider} == 'VINA'"
+                      steps:
+                        - to: "direct:callVinaTelco"
+                  otherwise:
+                    steps:
+                      - to: "direct:callUnsupportedTelco"
+
+- route:
+    id: adapter-viettel-telco
+    description: "Action nạp thẻ Viettel (Chiết khấu 5%)"
+    from:
+      uri: direct:callViettelTelco
+      steps:
+        - to: "bean:telcoActions?method=viettel"
+
+- route:
+    id: adapter-mobi-telco
+    description: "Action nạp thẻ Mobifone (Chiết khấu 4.5%)"
+    from:
+      uri: direct:callMobiTelco
+      steps:
+        - to: "bean:telcoActions?method=mobi"
+
+- route:
+    id: adapter-vina-telco
+    description: "Action nạp thẻ Vinaphone (Chiết khấu 4%)"
+    from:
+      uri: direct:callVinaTelco
+      steps:
+        - to: "bean:telcoActions?method=vina"
+
+- route:
+    id: adapter-napas-fallback
+    description: "Action chuyển tuyến Napas dự phòng khi mạng lỗi"
+    from:
+      uri: direct:napasFallbackGateway
+      steps:
+        - to: "bean:telcoActions?method=napasFallback"
+
+- route:
+    id: adapter-unsupported-telco
+    description: "Action từ chối nhà mạng không hỗ trợ"
+    from:
+      uri: direct:callUnsupportedTelco
+      steps:
+        - setBody:
+            simple: >-
+              {"orderId":"${body.orderId}","status":"FAILED","serviceType":"TOPUP","finalAmount":${body.amount},"message":"Nhà mạng viễn thông không hỗ trợ: ${body.provider}","processedBy":"TELCO_VALIDATOR"}
+        - unmarshal:
+            json:
+              library: Jackson
+              unmarshal-type: "com.demo_apache_camel.hub.model.OrderResponse"

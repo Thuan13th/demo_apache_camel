@@ -37,6 +37,8 @@ camel:
     # Graceful shutdown: Bảo vệ giao dịch đang bay không bị đứt đoạn khi restart
     shutdown-timeout: 10
     shutdown-routes-in-reverse-order: true
+    # Nạp tự động các workflow tích hợp theo chuẩn YAML DSL (kiểu GitHub Actions)
+    routes-include-pattern: classpath:workflows/*.yaml
     endpoint-runtime-statistics-enabled: true
   threadpool:
     pool-size: ${CAMEL_THREAD_POOL_SIZE:10}
@@ -64,6 +66,17 @@ hub:
     max-retry-attempts: ${PARTNER_MAX_RETRIES:2}
     retry-delay-ms: ${PARTNER_RETRY_DELAY_MS:1000}
     parallel-timeout-ms: ${PARTNER_PARALLEL_TIMEOUT_MS:3000}
+
+  # =========================================================================
+  # 2.1 CẤU HÌNH PHÂN HỆ E-VOUCHER (Khai báo cho Camel YAML DSL)
+  # =========================================================================
+  voucher:
+    gotit:
+      discount-rate: ${VOUCHER_GOTIT_DISCOUNT:0.90} # Chiết khấu 10%
+      gateway-name: YAML_DSL_GOTIT_GATEWAY
+    urbox:
+      discount-rate: ${VOUCHER_URBOX_DISCOUNT:0.92} # Chiết khấu 8%
+      gateway-name: YAML_DSL_URBOX_GATEWAY
 
   # =========================================================================
   # 3. BẢO MẬT JWT INBOUND (Client → Hub)

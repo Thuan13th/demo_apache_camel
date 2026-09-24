@@ -1,0 +1,33 @@
+# =========================================================================
+# WORKFLOW: HUB AUDIT & DEAD-LETTER QUEUE PIPELINE
+# Style: Declarative YAML Workflow (Tương tự GitHub Actions)
+# Trigger (on): seda:hubAuditLog & seda:deadLetterQueue
+# =========================================================================
+
+- route:
+    id: hub-audit-log-route
+    description: "Pipeline lưu trữ nhật ký kiểm toán giao dịch của Hub bất đồng bộ"
+    from:
+      uri: "seda:hubAuditLog?concurrentConsumers=2"
+      steps:
+        - log:
+            message: "[HUB-AUDIT] [Thread: ${threadName}] Lưu vết giao dịch OrderId=${exchangeProperty.OrderId}, Payload=${body}"
+            loggingLevel: INFO
+        - delay:
+            constant: 300
+        - log:
+            message: "[HUB-AUDIT] Hoàn tất ghi nhận audit log cho OrderId=${exchangeProperty.OrderId}."
+            loggingLevel: INFO
+
+- route:
+    id: hub-dead-letter-route
+    description: "Pipeline tiếp nhận và ghi vết các bản tin lỗi nghiêm trọng"
+    from:
+      uri: seda:deadLetterQueue
+      steps:
+        - log:
+            message: "[DEAD-LETTER-ALERT] Giao dịch thất bại! Lỗi: ${exception.message}, Payload gốc: ${body}"
+            loggingLevel: ERROR
+        - log:
+            message: "[DEAD-LETTER] Đã ghi nhận bản tin lỗi vào kho dữ liệu phục hồi sự cố"
+            loggingLevel: INFO

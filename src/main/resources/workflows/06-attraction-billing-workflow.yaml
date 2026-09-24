@@ -1,0 +1,68 @@
+# =========================================================================
+# WORKFLOW: ATTRACTION TICKETS & UTILITY BILLING PIPELINE
+# Style: Declarative YAML Workflow (Tương tự GitHub Actions)
+# Trigger (on): direct:attractionPartnerService
+# =========================================================================
+
+- route:
+    id: attraction-partner-orchestrator
+    description: "Pipeline điều phối mua vé vui chơi giải trí & thanh toán hóa đơn"
+    from:
+      uri: direct:attractionPartnerService
+      steps:
+        - log:
+            message: "[WORKFLOW-ATTRACTION] Tiếp nhận yêu cầu mua vé / dịch vụ [Đối tác: ${body.provider}]"
+            loggingLevel: INFO
+        - choice:
+            when:
+              - simple: "${body.provider} == 'VINWONDERS'"
+                steps:
+                  - to: "direct:callVinwonders"
+              - simple: "${body.provider} == 'SUNWORLD'"
+                steps:
+                  - to: "direct:callSunworld"
+            otherwise:
+              steps:
+                - to: "direct:callGenericBill"
+
+- route:
+    id: adapter-vinwonders
+    description: "Action xuất vé điện tử VinWonders / Safari"
+    from:
+      uri: direct:callVinwonders
+      steps:
+        - setBody:
+            simple: >-
+              {"orderId":"${body.orderId}","status":"SUCCESS","serviceType":"ATTRACTION","finalAmount":${body.amount},"message":"Xuất vé VinWonders thành công! Mã QR vào cổng: VW-TICKET-${random(100000,999999)}","processedBy":"VINWONDERS_GATEWAY"}
+        - unmarshal:
+            json:
+              library: Jackson
+              unmarshal-type: "com.demo_apache_camel.hub.model.OrderResponse"
+
+- route:
+    id: adapter-sunworld
+    description: "Action xuất vé cáp treo Sun World"
+    from:
+      uri: direct:callSunworld
+      steps:
+        - setBody:
+            simple: >-
+              {"orderId":"${body.orderId}","status":"SUCCESS","serviceType":"ATTRACTION","finalAmount":${body.amount},"message":"Xuất vé Sun World thành công! Mã vé điện tử: SW-TICKET-${random(100000,999999)}","processedBy":"SUNWORLD_GATEWAY"}
+        - unmarshal:
+            json:
+              library: Jackson
+              unmarshal-type: "com.demo_apache_camel.hub.model.OrderResponse"
+
+- route:
+    id: adapter-generic-bill
+    description: "Action thanh toán hóa đơn dịch vụ (EVN, Nước, Viễn thông...)"
+    from:
+      uri: direct:callGenericBill
+      steps:
+        - setBody:
+            simple: >-
+              {"orderId":"${body.orderId}","status":"SUCCESS","serviceType":"${body.serviceType}","finalAmount":${body.amount},"message":"Thanh toán dịch vụ thành công cho đối tác: ${body.provider}","processedBy":"${body.provider}"}
+        - unmarshal:
+            json:
+              library: Jackson
+              unmarshal-type: "com.demo_apache_camel.hub.model.OrderResponse"

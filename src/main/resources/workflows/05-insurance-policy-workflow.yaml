@@ -1,0 +1,68 @@
+# =========================================================================
+# WORKFLOW: INSURANCE POLICY ISSUANCE PIPELINE
+# Style: Declarative YAML Workflow (Tương tự GitHub Actions)
+# Trigger (on): direct:insurancePartnerService
+# =========================================================================
+
+- route:
+    id: insurance-partner-orchestrator
+    description: "Pipeline điều phối cấp hợp đồng bảo hiểm trực tuyến"
+    from:
+      uri: direct:insurancePartnerService
+      steps:
+        - log:
+            message: "[WORKFLOW-INSURANCE] Tiếp nhận yêu cầu mua bảo hiểm [Nhà cung cấp: ${body.provider}]"
+            loggingLevel: INFO
+        - choice:
+            when:
+              - simple: "${body.provider} == 'BAOVIET'"
+                steps:
+                  - to: "direct:callBaoVietInsurance"
+              - simple: "${body.provider} == 'PVI'"
+                steps:
+                  - to: "direct:callPviInsurance"
+            otherwise:
+              steps:
+                - to: "direct:callUnknownInsurance"
+
+- route:
+    id: adapter-baoviet-insurance
+    description: "Action phát hành hợp đồng bảo hiểm Bảo Việt"
+    from:
+      uri: direct:callBaoVietInsurance
+      steps:
+        - setBody:
+            simple: >-
+              {"orderId":"${body.orderId}","status":"SUCCESS","serviceType":"INSURANCE","finalAmount":${body.amount},"message":"Phát hành chứng nhận bảo hiểm Bảo Việt thành công! Số HĐ: BV-POLICY-${random(100000,999999)} (Người thụ hưởng: ${body.customerName})","processedBy":"BAOVIET_INSURANCE_GATEWAY"}
+        - unmarshal:
+            json:
+              library: Jackson
+              unmarshal-type: "com.demo_apache_camel.hub.model.OrderResponse"
+
+- route:
+    id: adapter-pvi-insurance
+    description: "Action phát hành hợp đồng bảo hiểm PVI"
+    from:
+      uri: direct:callPviInsurance
+      steps:
+        - setBody:
+            simple: >-
+              {"orderId":"${body.orderId}","status":"SUCCESS","serviceType":"INSURANCE","finalAmount":${body.amount},"message":"Phát hành chứng nhận bảo hiểm PVI thành công! Số HĐ: PVI-CERT-${random(100000,999999)}","processedBy":"PVI_INSURANCE_GATEWAY"}
+        - unmarshal:
+            json:
+              library: Jackson
+              unmarshal-type: "com.demo_apache_camel.hub.model.OrderResponse"
+
+- route:
+    id: adapter-unknown-insurance
+    description: "Action từ chối nhà cung cấp bảo hiểm không hỗ trợ"
+    from:
+      uri: direct:callUnknownInsurance
+      steps:
+        - setBody:
+            simple: >-
+              {"orderId":"${body.orderId}","status":"FAILED","serviceType":"INSURANCE","finalAmount":0.0,"message":"Nhà cung cấp bảo hiểm chưa được hỗ trợ: ${body.provider}","processedBy":"INSURANCE_VALIDATOR"}
+        - unmarshal:
+            json:
+              library: Jackson
+              unmarshal-type: "com.demo_apache_camel.hub.model.OrderResponse"

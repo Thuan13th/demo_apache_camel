@@ -1,0 +1,34 @@
+# =========================================================================
+# WORKFLOW: RECONCILIATION BATCH FILE INGESTION & DISPATCH PIPELINE
+# Style: Declarative YAML Workflow (Tương tự GitHub Actions)
+# Trigger (on): direct:processInboundFile
+# =========================================================================
+
+- route:
+    id: partner-file-inbound-orchestrator
+    description: "Pipeline tiếp nhận và tự động phân loại định dạng file đối soát"
+    from:
+      uri: direct:processInboundFile
+      steps:
+        - log:
+            message: "[WORKFLOW-RECON] Tiếp nhận file đối soát: ${header.CamelFileName}"
+            loggingLevel: INFO
+        - choice:
+            when:
+              - simple: "${header.CamelFileName} ends with '.csv'"
+                steps:
+                  - to: "direct:parseViettelCsv"
+              - simple: "${header.CamelFileName} ends with '.xml'"
+                steps:
+                  - to: "direct:parseSabreXml"
+              - simple: "${header.CamelFileName} ends with '.json'"
+                steps:
+                  - to: "direct:parseVinwondersJson"
+              - simple: "${header.CamelFileName} ends with '.txt'"
+                steps:
+                  - to: "direct:parseNapasFixedLength"
+            otherwise:
+              steps:
+                - log:
+                    message: "[WORKFLOW-RECON] Định dạng file không được hỗ trợ: ${header.CamelFileName}"
+                    loggingLevel: WARN

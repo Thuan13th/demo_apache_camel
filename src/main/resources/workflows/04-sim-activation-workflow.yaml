@@ -1,0 +1,68 @@
+# =========================================================================
+# WORKFLOW: SIM & ESIM ACTIVATION PIPELINE
+# Style: Declarative YAML Workflow (Tương tự GitHub Actions)
+# Trigger (on): direct:simPartnerService
+# =========================================================================
+
+- route:
+    id: sim-partner-orchestrator
+    description: "Pipeline điều phối mua SIM & cấp mã QR kích hoạt eSIM"
+    from:
+      uri: direct:simPartnerService
+      steps:
+        - log:
+            message: "[WORKFLOW-SIM] Tiếp nhận yêu cầu SIM [Nhà mạng: ${body.provider}]"
+            loggingLevel: INFO
+        - choice:
+            when:
+              - simple: "${body.provider} == 'WINTEL'"
+                steps:
+                  - to: "direct:callWintelEsim"
+              - simple: "${body.provider} == 'VIETTEL'"
+                steps:
+                  - to: "direct:callViettelSim"
+            otherwise:
+              steps:
+                - to: "direct:callUnknownSim"
+
+- route:
+    id: adapter-wintel-esim
+    description: "Action cấp mã QR kích hoạt eSIM Wintel"
+    from:
+      uri: direct:callWintelEsim
+      steps:
+        - setBody:
+            simple: >-
+              {"orderId":"${body.orderId}","status":"SUCCESS","serviceType":"SIM","finalAmount":${body.amount},"message":"Cấp phát eSIM Wintel thành công! Mã QR kích hoạt: LPA:1$wintel.vn$ESIM${random(10000000,99999999)}","processedBy":"WINTEL_ESIM_GATEWAY"}
+        - unmarshal:
+            json:
+              library: Jackson
+              unmarshal-type: "com.demo_apache_camel.hub.model.OrderResponse"
+
+- route:
+    id: adapter-viettel-sim
+    description: "Action đấu nối SIM vật lý 4G Viettel"
+    from:
+      uri: direct:callViettelSim
+      steps:
+        - setBody:
+            simple: >-
+              {"orderId":"${body.orderId}","status":"SUCCESS","serviceType":"SIM","finalAmount":${body.amount},"message":"Đấu nối SIM Viettel Data thành công! Số Serial SIM: 898404${random(1000000000,9999999999)}","processedBy":"VIETTEL_SIM_DIRECT"}
+        - unmarshal:
+            json:
+              library: Jackson
+              unmarshal-type: "com.demo_apache_camel.hub.model.OrderResponse"
+
+- route:
+    id: adapter-unknown-sim
+    description: "Action từ chối nhà mạng SIM không hỗ trợ"
+    from:
+      uri: direct:callUnknownSim
+      steps:
+        - setBody:
+            simple: >-
+              {"orderId":"${body.orderId}","status":"FAILED","serviceType":"SIM","finalAmount":0.0,"message":"Nhà mạng cung cấp SIM chưa được hỗ trợ: ${body.provider}","processedBy":"SIM_VALIDATOR"}
+        - unmarshal:
+            json:
+              library: Jackson
+              unmarshal-type: "com.demo_apache_camel.hub.model.OrderResponse"
